@@ -46,7 +46,7 @@ fn main() {
         }
         Subcommands::FocusGroup { group_name } => {
             if let Some(group_name) = rofi_get_group_name("Focus group", group_name, &group_names) {
-                controller.focus_group(&group_name);
+                controller.focus_group_all(&group_name);
             }
         }
         Subcommands::MoveContainerToWorkspace { local_number } => {

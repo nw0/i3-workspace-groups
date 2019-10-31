@@ -108,17 +108,24 @@ impl WorkspaceGroupsController {
     }
 
     fn get_workspaces(&mut self) -> &[Workspace] {
-        if self.workspaces.is_none() {
-            self.workspaces = Some(
-                self.i3connection
-                    .lock()
-                    .unwrap()
-                    .get_workspaces()
-                    .expect("failed to get i3 workspaces")
-                    .workspaces,
-            )
-        }
+        // if self.workspaces.is_none() {
+        self.workspaces = Some(
+            self.i3connection
+                .lock()
+                .unwrap()
+                .get_workspaces()
+                .expect("failed to get i3 workspaces")
+                .workspaces,
+        );
+        // }
         self.workspaces.as_ref().unwrap()
+    }
+
+    fn get_visible_workspaces(&mut self) -> Vec<&Workspace> {
+        self.get_workspaces()
+            .iter()
+            .filter(|&workspace| workspace.visible)
+            .collect::<Vec<_>>()
     }
 
     fn get_focused_workspace(&mut self) -> &Workspace {
@@ -182,6 +189,59 @@ impl WorkspaceGroupsController {
         let workspace_name = entry.1[0].name.clone();
         println!("{}", workspace_name);
         self.send_i3_command(&format!("workspace {}", workspace_name));
+    }
+
+    pub fn focus_group_ws(&mut self, group_name: &str, local_number: usize) {
+        let groups = self.get_groups();
+        let entry = groups.entry(group_name.to_owned()).or_insert({
+            let group = Group::new(
+                group_name,
+                SORTED_HASHER.lock().unwrap().hash(group_name.to_owned()),
+            );
+            (group.clone(), vec![CustomWorkspace::new(Some(group), 1)])
+        });
+
+        let group = Some(entry.0.clone());
+        let new_workspace_name = CustomWorkspace::new(group.clone(), local_number).name;
+        let query = match group {
+            Some(_) => format!("workspace --no-auto-back-and-forth {}", new_workspace_name),
+            None => format!(
+                "workspace --no-auto-back-and-forth number {}",
+                new_workspace_name
+            ),
+        };
+        self.send_i3_command(&query);
+    }
+
+    pub fn focus_group_all(&mut self, group_name: &str) {
+        let visible = self.get_visible_workspaces();
+        let focused_name = (visible.iter().find(|&workspace| workspace.focused))
+            .expect("no focused workspace")
+            .name
+            .clone();
+        let visible_names = visible
+            .iter()
+            .map(|&workspace| workspace.name.clone())
+            .collect::<Vec<_>>();
+        // let focused_group = self.get_focused_group().expect("no focused group");
+
+        for name in visible_names {
+            if name == focused_name {
+                continue;
+            }
+            let workspace = CustomWorkspace::from_name(&name);
+            self.send_i3_command(&format!(
+                "workspace --no-auto-back-and-forth {}",
+                workspace.name
+            ));
+            self.focus_group_ws(group_name, workspace.local_number);
+        }
+        let workspace = CustomWorkspace::from_name(&focused_name);
+        self.send_i3_command(&format!(
+            "workspace --no-auto-back-and-forth {}",
+            workspace.name
+        ));
+        self.focus_group_ws(group_name, workspace.local_number);
     }
 
     pub fn move_container_to_workspace(&mut self, local_number: usize) {
